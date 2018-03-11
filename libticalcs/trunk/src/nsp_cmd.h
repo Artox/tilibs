@@ -45,6 +45,8 @@ extern "C" {
 
 #define NSP_SID_OS_INSTALL              0x4080
 
+#define NSP_SID_REMOTE_MGMT             0x4090
+
 // Errors
 #define NSP_ERR_OK                      0x00
 #define NSP_ERR_DIR_UNKNOWN             0x0a
