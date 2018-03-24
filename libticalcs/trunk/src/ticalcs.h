@@ -311,7 +311,7 @@ typedef enum
 	FNCT_CHATTR,
 	FNCT_SEND_ALL_VARS_BACKUP,
 	FNCT_RECV_ALL_VARS_BACKUP,
-	FNCT_LAST // Keep this one last
+	CALC_FNCT_LAST // Keep this one last
 } CalcFnctsIdx;
 
 #define FNCT_DUMP_ROM FNCT_DUMP_ROM2
@@ -331,13 +331,27 @@ typedef enum
 	TIG_ALL     = 7,
 } TigMode;
 
+/**
+ * DBUSPacket:
+ *
+ * Packet for the DBUS (old calculators) protocol.
+ **/
+typedef struct
+{
+	uint16_t length;     ///< data length
+	uint8_t  id;         ///< target (send) or host (recv) model
+	uint8_t  cmd;        ///< protocol command
+
+	uint8_t *data;       ///< packet data
+} DBUSPacket;
+
 //! Size of the header of a \a DUSBRawPacket
 #define DUSB_HEADER_SIZE (4+1)
 
 /**
  * DUSBRawPacket:
  *
- * Raw packet for the DUSB (84+(SE), 89T) protocol.
+ * Raw packet for the DUSB / CARS (84+(SE), 89T) protocol.
  **/
 typedef struct
 {
@@ -346,6 +360,19 @@ typedef struct
 
 	uint8_t  data[1023]; ///< raw packet data
 } DUSBRawPacket;
+
+/**
+ * DUSBVirtualPacket:
+ *
+ * Virtual packet for the DUSB / CARS (84+(SE), 89T) protocol.
+ **/
+typedef struct
+{
+	uint32_t size;       ///< virtual packet size
+	uint16_t type;       ///< virtual packet type
+
+	uint8_t *data;       ///< virtual packet data
+} DUSBVirtualPacket;
 
 //! Size of the header of a \a NSPRawPacket
 #define NSP_HEADER_SIZE (16)
@@ -372,6 +399,37 @@ typedef struct
 
 	uint8_t   data[NSP_DATA_SIZE];
 } NSPRawPacket;
+
+/**
+ * NSPVirtualPacket:
+ *
+ * Virtual packet for the Nspire NavNet protocol.
+ **/
+typedef struct
+{
+	uint16_t  src_addr;
+	uint16_t  src_port;
+	uint16_t  dst_addr;
+	uint16_t  dst_port;
+
+	uint8_t   cmd;
+
+	uint32_t  size;
+	uint8_t  *data;
+} NSPVirtualPacket;
+
+/**
+ * ROMDumpRawPacket:
+ *
+ * Packet for libticalcs' ROM dump protocol.
+ **/
+typedef struct
+{
+	uint16_t length;     ///< data length
+	uint16_t cmd;        ///< protocol command
+
+	uint8_t *data;       ///< packet data
+} ROMDumpRawPacket;
 
 /**
  * CalcScreenCoord:
@@ -620,7 +678,7 @@ struct _CalcFncts
 	const char*		description;
 	const int		features;
 	const CalcProductIDs	product_id;
-	const char*		counters[FNCT_LAST];
+	const char*		counters[CALC_FNCT_LAST];
 
 	int		(*is_ready)		(CalcHandle*);
 
@@ -670,6 +728,72 @@ struct _CalcFncts
 };
 
 /**
+ * CalcEventType:
+ *
+ * Defines the various events fired by libticalcs into a registered event hook, if any.
+ */
+typedef enum
+{
+	CALC_EVENT_TYPE_UNKNOWN = 0,
+	CALC_EVENT_TYPE_BEFORE_CABLE_ATTACH,
+	CALC_EVENT_TYPE_AFTER_CABLE_ATTACH,
+	CALC_EVENT_TYPE_BEFORE_CABLE_DETACH,
+	CALC_EVENT_TYPE_AFTER_CABLE_DETACH,
+	CALC_EVENT_TYPE_BEFORE_SEND_DBUS = 64,
+	CALC_EVENT_TYPE_AFTER_SEND_DBUS,
+	CALC_EVENT_TYPE_BEFORE_SEND_DUSB_RPKT,
+	CALC_EVENT_TYPE_AFTER_SEND_DUSB_RPKT,
+	CALC_EVENT_TYPE_BEFORE_SEND_NSP_RPKT,
+	CALC_EVENT_TYPE_AFTER_SEND_NSP_RPKT,
+	CALC_EVENT_TYPE_BEFORE_SEND_ROMDUMP_RPKT,
+	CALC_EVENT_TYPE_AFTER_SEND_ROMDUMP_RPKT,
+	CALC_EVENT_TYPE_BEFORE_SEND_DUSB_VPKT,
+	CALC_EVENT_TYPE_AFTER_SEND_DUSB_VPKT,
+	CALC_EVENT_TYPE_BEFORE_SEND_NSP_VPKT,
+	CALC_EVENT_TYPE_AFTER_SEND_NSP_VPKT,
+	CALC_EVENT_TYPE_BEFORE_GENERIC_OPERATION = 128,
+	CALC_EVENT_TYPE_AFTER_GENERIC_OPERATION,
+	CALC_EVENT_TYPE_USER = 256
+} CalcEventType;
+
+/**
+ * CalcEventData:
+ * @version: event protocol version.
+ * @type: event type.
+ * @retval: return value of the operation, for "after" events.
+ * @attached: whether the cable is attached.
+ * @operation: index (CalcFnctsIdx) of the generic operation invoked by the library user, if any.
+ * @data: packet data to be sent / received, if any - or user-specified data.
+ *
+ * Information returned for every event fired by the libticalcs library; only a subset of the fields is valid for some event types.
+ */
+typedef struct
+{
+	unsigned int version;
+	CalcEventType type;
+	int retval;
+	int attached;
+	int open;
+	CalcFnctsIdx operation;
+	union
+	{
+		DBUSPacket dbus_pkt;
+		DUSBRawPacket dusb_rpkt;
+		DUSBVirtualPacket dusb_vpkt;
+		NSPRawPacket nsp_rpkt;
+		NSPVirtualPacket nsp_vpkt;
+		ROMDumpRawPacket rom_rpkt;
+		struct
+		{
+			void * data;
+			uint32_t len;
+		} user_data;
+	} data;
+} CalcEventData;
+
+typedef int (*ticalcs_event_hook_type)(CalcHandle * handle, const CalcEventData * event);
+
+/**
  * CalcHandle:
  * @model: cable model
  * @calc: calculator functions
@@ -716,6 +840,8 @@ struct _CalcHandle
 		uint16_t nsp_src_port;
 		uint16_t nsp_dst_port;
 	} priv;
+
+	ticalcs_event_hook_type event_hook;
 };
 
 /**
@@ -770,6 +896,10 @@ typedef struct
 	TIEXPORT3 int TICALL ticalcs_model_supports_dbus(CalcModel model);
 	TIEXPORT3 int TICALL ticalcs_model_supports_dusb(CalcModel model);
 	TIEXPORT3 int TICALL ticalcs_model_supports_nsp(CalcModel model);
+
+	TIEXPORT3 ticalcs_event_hook_type TICALL ticalcs_calc_get_event_hook(CalcHandle *handle);
+	TIEXPORT3 ticalcs_event_hook_type TICALL ticalcs_calc_set_event_hook(CalcHandle *handle, ticalcs_event_hook_type hook);
+	TIEXPORT3 int TICALL ticalcs_calc_fire_user_event(CalcHandle *handle, CalcEventType type, void * user_data, uint32_t user_len);
 
 	// error.c
 	TIEXPORT3 int         TICALL ticalcs_error_get (int number, char **message);

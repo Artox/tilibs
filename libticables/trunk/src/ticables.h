@@ -59,7 +59,7 @@ extern "C" {
  *
  * An enumeration which contains the following cable types:
  **/
-typedef enum 
+typedef enum
 {
 	CABLE_NUL = 0,
 	CABLE_GRY, CABLE_BLK, CABLE_PAR, CABLE_SLV, CABLE_USB,
@@ -73,7 +73,7 @@ typedef enum
  *
  * An enumeration which contains the following ports:
  **/
-typedef enum 
+typedef enum
 {
 	PORT_0 = 0,
 	PORT_1, PORT_FIRST = PORT_1, PORT_2, PORT_3, PORT_4, PORT_MAX
@@ -84,7 +84,7 @@ typedef enum
  *
  * An enumeration which contains the following devices:
  **/
-typedef enum 
+typedef enum
 {
 	PID_UNKNOWN		= 0,
 	PID_TIGLUSB     = 0xE001,
@@ -99,10 +99,10 @@ typedef enum
  *
  * An enumeration which contains the following values:
  **/
-typedef enum 
+typedef enum
 {
-	STATUS_NONE = 0, 
-	STATUS_RX = 1, 
+	STATUS_NONE = 0,
+	STATUS_RX = 1,
 	STATUS_TX = 2,
 } CableStatus;
 
@@ -119,6 +119,32 @@ typedef enum
 	PROBE_DBUS	= 4,
 	PROBE_ALL	= 6,
 } ProbingMethod;
+
+/**
+ * CableFnctsIdx:
+ *
+ * Index of function in the #CableFncts structure:
+ **/
+typedef enum
+{
+	CABLE_FNCT_PREPARE=0,
+	CABLE_FNCT_OPEN,
+	CABLE_FNCT_CLOSE,
+	CABLE_FNCT_RESET,
+	CABLE_FNCT_TIMEOUT,
+	CABLE_FNCT_SEND,
+	CABLE_FNCT_RECV,
+	CABLE_FNCT_CHECK,
+	CABLE_FNCT_SET_D0,
+	CABLE_FNCT_SET_D1,
+	CABLE_FNCT_GET_D0,
+	CABLE_FNCT_GET_D1,
+	CABLE_FNCT_SET_RAW,
+	CABLE_FNCT_GET_RAW,
+	CABLE_FNCT_SET_DEVICE,
+	CABLE_FNCT_GET_DEVICE_INFO,
+	CABLE_FNCT_LAST // Keep this one last
+} CableFnctsIdx;
 
 /**
  * CableFamily:
@@ -180,7 +206,7 @@ typedef struct
  * A structure used for benchmarks.
  * !!! This structure is for private use !!!
  **/
-typedef struct 
+typedef struct
 {
 	int		count;
 	tiTIME	start;
@@ -215,7 +241,7 @@ typedef struct _CableHandle  CableHandle;
  * @get_raw: read both wires
  *
  * A structure used for handling a link cable.
- * !!! This structure is for private use !!! 
+ * !!! This structure is for private use !!!
  **/
 struct _CableFncts
 {
@@ -254,6 +280,52 @@ typedef int (*ticables_pre_recv_hook_type)(CableHandle * handle, uint8_t * data,
 typedef int (*ticables_post_recv_hook_type)(CableHandle * handle, uint8_t * data, uint32_t len, int retval);
 
 /**
+ * CableEventType:
+ *
+ * Defines the various events fired by libticables into a registered event hook, if any.
+ */
+typedef enum
+{
+	CABLE_EVENT_TYPE_UNKNOWN = 0,
+	CABLE_EVENT_TYPE_BEFORE_OPEN,
+	CABLE_EVENT_TYPE_AFTER_OPEN,
+	CABLE_EVENT_TYPE_BEFORE_CLOSE,
+	CABLE_EVENT_TYPE_AFTER_CLOSE,
+	CABLE_EVENT_TYPE_BEFORE_RESET,
+	CABLE_EVENT_TYPE_AFTER_RESET,
+	CABLE_EVENT_TYPE_BEFORE_SEND = 64,
+	CABLE_EVENT_TYPE_AFTER_SEND,
+	CABLE_EVENT_TYPE_BEFORE_RECV,
+	CABLE_EVENT_TYPE_AFTER_RECV,
+	CABLE_EVENT_TYPE_BEFORE_GENERIC_OPERATION = 128,
+	CABLE_EVENT_TYPE_AFTER_GENERIC_OPERATION,
+	CABLE_EVENT_TYPE_USER = 256
+} CableEventType;
+
+/**
+ * CableEventData:
+ * @version: event protocol version.
+ * @type: event type
+ * @retval: return value of the operation, for "after" events.
+ * @open: whether the cable is open.
+ * @data: data to be sent / received, if any - or user-specified data.
+ * @len: length of the data to be sent / received, if any.
+ *
+ * Information returned for every event fired by the libticables library; only a subset of the fields is valid for some event types.
+ */
+typedef struct
+{
+	unsigned int version;
+	CableEventType type;
+	int retval;
+	int open;
+	uint8_t * data;
+	uint32_t len;
+} CableEventData;
+
+typedef int (*ticables_event_hook_type)(CableHandle * handle, const CableEventData * event);
+
+/**
  * CableHandle:
  * @model: cable model
  * @port: generic port
@@ -268,10 +340,11 @@ typedef int (*ticables_post_recv_hook_type)(CableHandle * handle, uint8_t * data
  * @priv3: idem (static)
  * @open: set if cable has been open
  * @busy: set if cable is busy
- * @pre_send_hook: callback fired before sending a block of data
- * @post_send_hook: callback fired after sending a block of data.
- * @pre_recv_hook: callback fired before receiving a block of data
- * @post_recv_hook: callback fired after receiving a block of data.
+ * @pre_send_hook: callback fired before sending a block of data (deprecated).
+ * @post_send_hook: callback fired after sending a block of data (deprecated).
+ * @pre_recv_hook: callback fired before receiving a block of data (deprecated).
+ * @post_recv_hook: callback fired after receiving a block of data (deprecated).
+ * @event_hook: callback fired upon various events (replaces and expands on the deprecated callbacks).
  *
  * A structure used to store information as an handle.
  * !!! This structure is for private use !!!
@@ -300,6 +373,8 @@ struct _CableHandle
 	ticables_post_send_hook_type post_send_hook;
 	ticables_pre_recv_hook_type pre_recv_hook;
 	ticables_post_recv_hook_type post_recv_hook;
+
+	ticables_event_hook_type event_hook;
 };
 
 /**
@@ -389,15 +464,19 @@ typedef struct
 	TIEXPORT1 int TICALL ticables_cable_put(CableHandle *handle, uint8_t data);
 	TIEXPORT1 int TICALL ticables_cable_get(CableHandle *handle, uint8_t *data);
 
-	TIEXPORT1 ticables_pre_send_hook_type TICALL ticables_cable_get_pre_send_hook(CableHandle *handle);
-	TIEXPORT1 ticables_pre_send_hook_type TICALL ticables_cable_set_pre_send_hook(CableHandle *handle, ticables_pre_send_hook_type hook);
-	TIEXPORT1 ticables_post_send_hook_type TICALL ticables_cable_get_post_send_hook(CableHandle *handle);
-	TIEXPORT1 ticables_post_send_hook_type TICALL ticables_cable_set_post_send_hook(CableHandle *handle, ticables_post_send_hook_type hook);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_pre_send_hook_type TICALL ticables_cable_get_pre_send_hook(CableHandle *handle);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_pre_send_hook_type TICALL ticables_cable_set_pre_send_hook(CableHandle *handle, ticables_pre_send_hook_type hook);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_post_send_hook_type TICALL ticables_cable_get_post_send_hook(CableHandle *handle);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_post_send_hook_type TICALL ticables_cable_set_post_send_hook(CableHandle *handle, ticables_post_send_hook_type hook);
 
-	TIEXPORT1 ticables_pre_recv_hook_type TICALL ticables_cable_get_pre_recv_hook(CableHandle *handle);
-	TIEXPORT1 ticables_pre_recv_hook_type TICALL ticables_cable_set_pre_recv_hook(CableHandle *handle, ticables_pre_recv_hook_type hook);
-	TIEXPORT1 ticables_post_recv_hook_type TICALL ticables_cable_get_post_recv_hook(CableHandle *handle);
-	TIEXPORT1 ticables_post_recv_hook_type TICALL ticables_cable_set_post_recv_hook(CableHandle *handle, ticables_post_recv_hook_type hook);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_pre_recv_hook_type TICALL ticables_cable_get_pre_recv_hook(CableHandle *handle);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_pre_recv_hook_type TICALL ticables_cable_set_pre_recv_hook(CableHandle *handle, ticables_pre_recv_hook_type hook);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_post_recv_hook_type TICALL ticables_cable_get_post_recv_hook(CableHandle *handle);
+	TILIBS_DEPRECATED TIEXPORT1 ticables_post_recv_hook_type TICALL ticables_cable_set_post_recv_hook(CableHandle *handle, ticables_post_recv_hook_type hook);
+
+	TIEXPORT1 ticables_event_hook_type TICALL ticables_cable_get_event_hook(CableHandle *handle);
+	TIEXPORT1 ticables_event_hook_type TICALL ticables_cable_set_event_hook(CableHandle *handle, ticables_event_hook_type hook);
+	TIEXPORT1 int TICALL ticables_cable_fire_user_event(CableHandle *handle, CableEventType type, void * user_data, uint32_t user_len);
 
 	// type2str.c
 	TIEXPORT1 const char * TICALL ticables_model_to_string(CableModel model);

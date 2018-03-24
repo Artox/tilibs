@@ -266,28 +266,28 @@ TIEXPORT1 uint32_t TICALL ticables_max_ports(void)
 	return PORT_MAX;
 }
 
-static int default_pre_send_hook(CableHandle * handle, uint8_t * data, uint32_t len)
+static int default_event_hook(CableHandle * handle, const CableEventData * event)
 {
-	(void)handle, (void)data, (void)len;
-	return 0;
-}
-
-static int default_post_send_hook(CableHandle * handle, uint8_t * data, uint32_t len, int retval)
-{
-	LOG_N_DATA(handle, LOG_OUT, data, len);
-	return retval;
-}
-
-static int default_pre_recv_hook(CableHandle * handle, uint8_t * data, uint32_t len)
-{
-	(void)handle, (void)data, (void)len;
-	return 0;
-}
-
-static int default_post_recv_hook(CableHandle * handle, uint8_t * data, uint32_t len, int retval)
-{
-	LOG_N_DATA(handle, LOG_IN, data, len);
-	return retval;
+	const char * cablestr = ticables_model_to_string(ticables_get_model(handle));
+	const char * portstr = ticables_port_to_string(ticables_get_port(handle));
+	ticables_info("Event %d for cable %s port %s", event->type, cablestr, portstr);
+	switch (event->type)
+	{
+		case CABLE_EVENT_TYPE_BEFORE_SEND: break;
+		case CABLE_EVENT_TYPE_AFTER_SEND:
+		{
+			LOG_N_DATA(handle, LOG_OUT, event->data, event->len);
+			break;
+		}
+		case CABLE_EVENT_TYPE_BEFORE_RECV: break;
+		case CABLE_EVENT_TYPE_AFTER_RECV:
+		{
+			LOG_N_DATA(handle, LOG_IN, event->data, event->len);
+			break;
+		}
+		default: break;
+	}
+	return event->retval;
 }
 
 /**
@@ -329,10 +329,7 @@ TIEXPORT1 CableHandle* TICALL ticables_handle_new(CableModel model, CablePort po
 
 	if (handle != NULL)
 	{
-		handle->pre_send_hook = default_pre_send_hook;
-		handle->post_send_hook = default_post_send_hook;
-		handle->pre_recv_hook = default_pre_recv_hook;
-		handle->post_recv_hook = default_post_recv_hook;
+		handle->event_hook = default_event_hook;
 	}
 
 	return handle;

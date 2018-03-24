@@ -276,6 +276,17 @@ static inline GNode * dirlist_create_append_node(void * data, GNode ** tree)
 
 #define ticalcs_update_canceled(handle)  (handle->updat->cancel)
 
+#define FILL_CALC_EVENT_DATA(event, type_, retval_, attached_, open_, operation_) \
+	do \
+	{ \
+		event.version = 1; \
+		event.type = type_; \
+		event.retval = retval_; \
+		event.attached = attached_; \
+		event.open = open_; \
+		event.operation = operation_; \
+	} while(0);
+
 // backup.c
 int tixx_recv_all_vars_backup(CalcHandle* handle, FileContent* content);
 

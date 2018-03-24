@@ -45,7 +45,7 @@
 
 extern const CalcUpdate default_update;
 
-static CalcFncts const *const calcs[] = 
+static CalcFncts const *const calcs[] =
 {
 	&calc_00,
 #ifndef NO_TI73
@@ -290,6 +290,16 @@ TIEXPORT3 uint32_t TICALL ticalcs_supported_calcs (void)
 	return supported_calcs;
 }
 
+static int default_event_hook(CalcHandle * handle, const CalcEventData * event)
+{
+	const char * calcstr = ticalcs_model_to_string(ticalcs_get_model(handle));
+	CableHandle * cable = ticalcs_cable_get(handle);
+	const char * cablestr = ticables_model_to_string(ticables_get_model(cable));
+	const char * portstr = ticables_port_to_string(ticables_get_port(cable));
+	ticalcs_info("Event %d for calc %s connected through cable %s port %s", event->type, calcstr, cablestr, portstr);
+	return event->retval;
+}
+
 /**
  * ticalcs_handle_new:
  * @model: a hand-held model
@@ -326,6 +336,8 @@ TIEXPORT3 CalcHandle* TICALL ticalcs_handle_new(CalcModel model)
 
 			handle->priv.nsp_src_port = 0x8001;
 			handle->priv.nsp_dst_port = 0x4003; // NSP_PORT_ADDR_REQUEST
+
+			handle->event_hook = default_event_hook;
 
 			handle->buffer = (uint8_t *)g_malloc(65536 + 6);
 			if (handle->buffer == NULL)
@@ -429,17 +441,36 @@ TIEXPORT3 CalcModel TICALL ticalcs_get_model(CalcHandle *handle)
  **/
 TIEXPORT3 int TICALL ticalcs_cable_attach(CalcHandle* handle, CableHandle* cable)
 {
-	int ret;
+	int ret = 0;
 
 	VALIDATE_HANDLE(handle);
 
-	handle->cable = cable;
-	handle->attached = !0;
+	if (handle->event_hook)
+	{
+		CalcEventData event;
+		FILL_CALC_EVENT_DATA(event, /* type */ CALC_EVENT_TYPE_BEFORE_CABLE_ATTACH, /* retval */ 0, /* attached */ handle->attached, /* open */ handle->open, /* operation */ CALC_FNCT_LAST);
+		memset((void *)&event.data, 0, sizeof(event.data));
+		ret = handle->event_hook(handle, &event);
+	}
 
-	ret = ticables_cable_open(cable);
 	if (!ret)
 	{
-		handle->open = !0;
+		handle->cable = cable;
+		handle->attached = !0;
+
+		ret = ticables_cable_open(cable);
+		if (!ret)
+		{
+			handle->open = !0;
+		}
+	}
+
+	if (handle->event_hook)
+	{
+		CalcEventData event;
+		FILL_CALC_EVENT_DATA(event, /* type */ CALC_EVENT_TYPE_AFTER_CABLE_ATTACH, /* retval */ ret, /* attached */ handle->attached, /* open */ handle->open, /* operation */ CALC_FNCT_LAST);
+		memset((void *)&event.data, 0, sizeof(event.data));
+		ret = handle->event_hook(handle, &event);
 	}
 
 	return ret;
@@ -455,17 +486,36 @@ TIEXPORT3 int TICALL ticalcs_cable_attach(CalcHandle* handle, CableHandle* cable
  **/
 TIEXPORT3 int TICALL ticalcs_cable_detach(CalcHandle* handle)
 {
-	int ret;
+	int ret = 0;
 
 	VALIDATE_HANDLE(handle);
 
-	ret = ticables_cable_close(handle->cable);
+	if (handle->event_hook)
+	{
+		CalcEventData event;
+		FILL_CALC_EVENT_DATA(event, /* type */ CALC_EVENT_TYPE_BEFORE_CABLE_DETACH, /* retval */ 0, /* attached */ handle->attached, /* open */ handle->open, /* operation */ CALC_FNCT_LAST);
+		memset((void *)&event.data, 0, sizeof(event.data));
+		ret = handle->event_hook(handle, &event);
+	}
+
 	if (!ret)
 	{
-		handle->open = 0;
+		ret = ticables_cable_close(handle->cable);
+		if (!ret)
+		{
+			handle->open = 0;
 
-		handle->attached = 0;
-		handle->cable = NULL;
+			handle->attached = 0;
+			handle->cable = NULL;
+		}
+	}
+
+	if (handle->event_hook)
+	{
+		CalcEventData event;
+		FILL_CALC_EVENT_DATA(event, /* type */ CALC_EVENT_TYPE_AFTER_CABLE_DETACH, /* retval */ ret, /* attached */ handle->attached, /* open */ handle->open, /* operation */ CALC_FNCT_LAST);
+		memset((void *)&event.data, 0, sizeof(event.data));
+		ret = handle->event_hook(handle, &event);
 	}
 
 	return ret;
@@ -587,4 +637,75 @@ TIEXPORT3 int TICALL ticalcs_model_supports_nsp(CalcModel model)
 {
 	return (   /*model <  CALC_MAX
 	        &&*/ ( model == CALC_NSPIRE));
+}
+
+/**
+ * ticalcs_calc_get_event_hook:
+ *
+ * Get the current event hook function pointer.
+ *
+ * Return value: a function pointer.
+ */
+TIEXPORT3 ticalcs_event_hook_type TICALL ticalcs_calc_get_event_hook(CalcHandle *handle)
+{
+	if (!ticalcs_validate_handle(handle))
+	{
+		ticalcs_critical("%s: handle is NULL", __FUNCTION__);
+		return NULL;
+	}
+
+	return handle->event_hook;
+}
+
+/**
+ * ticalcs_calc_set_post_recv_hook:
+ * @hook: new post recv hook
+ *
+ * Set the current post recv hook function pointer.
+ *
+ * Return value: the previous post recv hook, so that the caller can use it to chain hooks.
+ */
+TIEXPORT3 ticalcs_event_hook_type TICALL ticalcs_calc_set_event_hook(CalcHandle *handle, ticalcs_event_hook_type hook)
+{
+	ticalcs_event_hook_type old_hook;
+
+	if (!ticalcs_validate_handle(handle))
+	{
+		ticalcs_critical("%s: handle is NULL", __FUNCTION__);
+		return NULL;
+	}
+
+	old_hook = handle->event_hook;
+	handle->event_hook = hook;
+
+	return old_hook;
+}
+
+/**
+ * ticalcs_calc_fire_user_event:
+ * @handle: a previously allocated handle.
+ * @type: event type.
+ * @user_data: user-specified data.
+ * @user_len: user-specified length.
+ *
+ * Fire a user-specified event to the registered event hook function, if any.
+ *
+ * Return value: 0 if successful, an error code otherwise.
+ */
+TIEXPORT1 int TICALL ticalcs_calc_fire_user_event(CalcHandle *handle, CalcEventType type, void * user_data, uint32_t user_len)
+{
+	int ret = 0;
+
+	VALIDATE_HANDLE(handle);
+
+	if (handle->event_hook && type >= CALC_EVENT_TYPE_USER)
+	{
+		CalcEventData event;
+		FILL_CALC_EVENT_DATA(event, /* type */ type, /* retval */ 0, /* attached */ handle->attached, /* open */ handle->open, /* operation */ CALC_FNCT_LAST);
+		event.data.user_data.data = user_data;
+		event.data.user_data.len = user_len;
+		ret = handle->event_hook(handle, &event);
+	}
+
+	return ret;
 }

@@ -34,18 +34,18 @@
 #define VALIDATE_HANDLE(handle) \
 	do \
 	{ \
-		if (handle == NULL) \
+		if (!ticables_validate_handle(handle)) \
 		{ \
-			ticables_critical("%s: " #handle " is NULL", __FUNCTION__); \
+			ticables_critical("%s: " #handle " is invalid", __FUNCTION__); \
 			return ERR_ILLEGAL_ARG; \
 		} \
 	} while(0);
 #define VALIDATE_CABLEFNCTS(cable) \
 	do \
 	{ \
-		if (cable == NULL) \
+		if (!ticables_validate_cablefncts(cable)) \
 		{ \
-			ticables_critical("%s: " # cable " is NULL", __FUNCTION__); \
+			ticables_critical("%s: " # cable " is invalid", __FUNCTION__); \
 			return ERR_ILLEGAL_ARG; \
 		} \
 	} while(0);
@@ -73,6 +73,27 @@
 		{ \
 			return ERR_BUSY; \
 		} \
+	} while(0);
+
+static inline int ticables_validate_handle(CableHandle * handle)
+{
+	return handle != NULL;
+}
+
+static inline int ticables_validate_cablefncts(const CableFncts * cable)
+{
+	return cable != NULL;
+}
+
+#define FILL_CABLE_EVENT_DATA(event, type_, retval_, open_, data_, len_) \
+	do \
+	{ \
+		event.version = 1; \
+		event.type = type_; \
+		event.retval = retval_; \
+		event.open = open_; \
+		event.data = data_; \
+		event.len = len_; \
 	} while(0);
 
 typedef struct {
