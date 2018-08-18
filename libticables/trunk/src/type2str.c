@@ -115,6 +115,10 @@ TIEXPORT1 const char *TICALL ticables_port_to_string(CablePort port)
 	case PORT_2: return "#2";
 	case PORT_3: return "#3";
 	case PORT_4: return "#4";
+	case PORT_USB_1: return "USB#1";
+	case PORT_USB_2: return "USB#2";
+	case PORT_USB_3: return "USB#3";
+	case PORT_USB_4: return "USB#4";
 	default: return "unknown";
 	}
 }
